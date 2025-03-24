@@ -2,11 +2,23 @@ pipeline {
     agent any
 
     environment {
-        NETLIFY_SITE_ID = '4084bc2b-2632-4a33-8aaa-4435cf4f995b'
+        NETLIFY_SITE_ID = 'your-site-id-here'
         NETLIFY_AUTH = credentials('netlify-token')
     }
 
     stages {
+        stage('Install Dependencies') {
+            agent {
+                docker {
+                    image 'node:18-alpine'
+                    reuseNode true
+                }
+            }
+            steps {
+                sh 'npm ci'
+            }
+        }
+
         stage('Build') {
             agent {
                 docker {
@@ -15,13 +27,7 @@ pipeline {
                 }
             }
             steps {
-                sh '''
-                    echo "================Building the project================"
-                    node --version
-                    npm --version
-                    npm ci
-                    npm run build
-                '''
+                sh 'npm run build'
             }
         }
 
@@ -34,14 +40,13 @@ pipeline {
             }
             steps {
                 sh '''
-                    echo "================Testing the project================"
-                    test -f build/index.html
-                    npm test
+                    mkdir -p test-results
+                    npm test -- --ci --reporters=default --reporters=jest-junit
                 '''
             }
         }
 
-        stage('Deploy') {
+        stage('Deploy to Netlify') {
             agent {
                 docker {
                     image 'node:18-alpine'
@@ -50,9 +55,7 @@ pipeline {
             }
             steps {
                 sh '''
-                    npm install netlify-cli --save-dev
-                    echo "================Deploying the project================"
-                    node_modules/.bin/netlify deploy --dir=build --prod --site=$NETLIFY_SITE_ID --auth=$NETLIFY_AUTH
+                    npx netlify deploy --dir=build --prod --site=$NETLIFY_SITE_ID --auth=$NETLIFY_AUTH
                 '''
             }
         }
@@ -60,12 +63,11 @@ pipeline {
 
     post {
         always {
-            // ไม่ใช้ fileExists แล้ว แต่ใช้ try-catch เผื่อไม่มีไฟล์ junit.xml
             script {
                 try {
                     junit 'test-results/junit.xml'
                 } catch (Exception e) {
-                    echo "JUnit result not found or failed to publish: ${e.message}"
+                    echo "Test report missing or failed: ${e.message}"
                 }
             }
         }
